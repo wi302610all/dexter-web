@@ -1,6 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
+import { WebSocketServer, WebSocket } from 'ws';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import { fileURLToPath } from 'url';
@@ -21,8 +21,25 @@ app.use(express.static(join(__dirname, '../../client')));
 const server = createServer(app);
 const wss = new WebSocketServer({ server });
 
-// 存储会话历史
-const sessions = new Map();
+// 存储会话
+const sessions = new Map<string, { ws: WebSocket; history: Array<{role: string, content: string}> }>();
+
+// 动态导入 Dexter Agent（延迟加载）
+let AgentClass: any = null;
+
+async function getAgent() {
+  if (!AgentClass) {
+    try {
+      // 尝试导入 Dexter Agent
+      const module = await import('./lib/agent/agent.js');
+      AgentClass = module.Agent;
+    } catch (error) {
+      console.error('Failed to load Dexter Agent:', error);
+      return null;
+    }
+  }
+  return AgentClass;
+}
 
 // WebSocket 连接处理
 wss.on('connection', (ws) => {
@@ -35,7 +52,7 @@ wss.on('connection', (ws) => {
     try {
       const message = JSON.parse(data.toString());
       await handleMessage(ws, sessionId, message);
-    } catch (error) {
+    } catch (error: any) {
       ws.send(JSON.stringify({ type: 'error', message: error.message }));
     }
   });
@@ -46,8 +63,9 @@ wss.on('connection', (ws) => {
 });
 
 // 处理消息
-async function handleMessage(ws, sessionId, message) {
+async function handleMessage(ws: WebSocket, sessionId: string, message: any) {
   const session = sessions.get(sessionId);
+  if (!session) return;
   
   switch (message.type) {
     case 'chat':
@@ -60,20 +78,8 @@ async function handleMessage(ws, sessionId, message) {
   }
 }
 
-// 处理聊天（模拟 Dexter Agent）
-async function processChat(ws, session, userMessage) {
-  // 模拟 Dexter 工具调用流程
-  const tools = [
-    { name: 'get_stock_price', description: '获取股票实时价格' },
-    { name: 'analyze_dcf', description: 'DCF 估值分析' },
-    { name: 'get_financials', description: '获取财务报表' },
-    { name: 'search_news', description: '搜索相关新闻' },
-    { name: 'get_insider_trades', description: '内幕交易数据' },
-    { name: 'place_order', description: '下单交易' },
-    { name: 'get_account', description: '查看账户' },
-    { name: 'get_positions', description: '查看持仓' },
-  ];
-  
+// 处理聊天
+async function processChat(ws: WebSocket, session: any, userMessage: string) {
   // 添加用户消息到历史
   session.history.push({ role: 'user', content: userMessage });
   
@@ -83,14 +89,87 @@ async function processChat(ws, session, userMessage) {
     message: '正在分析你的问题...'
   }));
   
-  // 模拟工具调用检测（简化版）
+  try {
+    // 尝试使用真实 Agent
+    const Agent = await getAgent();
+    
+    if (Agent) {
+      // 使用真实 Dexter Agent
+      const agent = await Agent.create({
+        model: process.env.OPENAI_API_KEY ? 'gpt-4o' : 'claude-3-5-sonnet-20241022',
+        memoryEnabled: false, // Web 版暂时禁用持久记忆
+      });
+      
+      let finalAnswer = '';
+      const toolCalls: any[] = [];
+      
+      // 运行 Agent 并处理事件流
+      for await (const event of agent.run(userMessage)) {
+        switch (event.type) {
+          case 'thinking':
+            ws.send(JSON.stringify({
+              type: 'thinking',
+              message: event.message
+            }));
+            break;
+            
+          case 'tool_call':
+            ws.send(JSON.stringify({
+              type: 'tool_call',
+              tool: event.tool,
+              args: event.args,
+              status: 'running'
+            }));
+            toolCalls.push({ tool: event.tool, args: event.args });
+            break;
+            
+          case 'tool_result':
+            ws.send(JSON.stringify({
+              type: 'tool_result',
+              tool: event.tool,
+              result: event.result
+            }));
+            break;
+            
+          case 'done':
+            finalAnswer = event.answer;
+            break;
+        }
+      }
+      
+      // 发送最终回答
+      session.history.push({ role: 'assistant', content: finalAnswer });
+      ws.send(JSON.stringify({
+        type: 'done',
+        message: finalAnswer
+      }));
+      
+    } else {
+      // 降级到模拟模式
+      await processMockChat(ws, session, userMessage);
+    }
+    
+  } catch (error: any) {
+    console.error('Agent error:', error);
+    
+    // 错误时降级到模拟模式
+    ws.send(JSON.stringify({
+      type: 'error',
+      message: `Agent 错误: ${error.message}。切换到模拟模式。`
+    }));
+    
+    await processMockChat(ws, session, userMessage);
+  }
+}
+
+// 模拟聊天（降级方案）
+async function processMockChat(ws: WebSocket, session: any, userMessage: string) {
   const stockMatch = userMessage.match(/[A-Z]{1,5}/g);
   const needsPrice = /价格|股价|多少钱/.test(userMessage);
   const needsAnalysis = /分析|估值|DCF/.test(userMessage);
   const needsTrade = /买入|卖出|下单|交易/.test(userMessage);
   const needsAccount = /账户|持仓|余额/.test(userMessage);
   
-  // 模拟工具调用
   if (stockMatch && needsPrice) {
     const symbol = stockMatch[0];
     ws.send(JSON.stringify({
@@ -182,7 +261,6 @@ async function processChat(ws, session, userMessage) {
     }));
   }
   
-  // 最终回复
   await sleep(300);
   
   const response = generateResponse(userMessage, needsPrice, needsAnalysis, needsTrade, needsAccount);
@@ -194,7 +272,7 @@ async function processChat(ws, session, userMessage) {
   }));
 }
 
-function generateResponse(query, hasPrice, hasAnalysis, hasTrade, hasAccount) {
+function generateResponse(query: string, hasPrice: boolean, hasAnalysis: boolean, hasTrade: boolean, hasAccount: boolean): string {
   if (hasAccount) {
     return '已查询你的账户信息和持仓情况。如需调整仓位或下单，请告诉我具体操作。';
   }
@@ -210,7 +288,7 @@ function generateResponse(query, hasPrice, hasAnalysis, hasTrade, hasAccount) {
   return '我是 Dexter，你的智能投资助手。我可以帮你：\n\n• 查询股票价格和财务数据\n• 进行 DCF 估值分析\n• 搜索市场新闻和内幕交易\n• 执行交易下单（纸交易模式）\n• 管理账户和持仓\n\n请告诉我你想了解哪只股票？';
 }
 
-function sleep(ms) {
+function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
