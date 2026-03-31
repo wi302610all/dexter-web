@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dexter - 智能投资助手</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="app">
+    <!-- 侧边栏 -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="logo">
+          <span class="logo-icon">⬡</span>
+          <span class="logo-text">DEXTER</span>
+        </div>
+        <button class="new-chat-btn" onclick="clearChat()">
+          <span>+</span> 新对话
+        </button>
+      </div>
+      
+      <div class="tools-section">
+        <h3>可用工具</h3>
+        <div class="tools-list" id="toolsList">
+          <!-- 动态加载 -->
+        </div>
+      </div>
+      
+      <div class="sidebar-footer">
+        <div class="connection-status" id="connectionStatus">
+          <span class="status-dot disconnected"></span>
+          <span>未连接</span>
+        </div>
+      </div>
+    </aside>
+    
+    <!-- 主聊天区域 -->
+    <main class="chat-main">
+      <div class="chat-header">
+        <h1>Dexter 智能投资助手</h1>
+        <p>支持股票分析、DCF估值、自动交易等26个工具</p>
+      </div>
+      
+      <div class="messages-container" id="messagesContainer">
+        <!-- 欢迎消息 -->
+        <div class="message assistant">
+          <div class="message-avatar">⬡</div>
+          <div class="message-content">
+            <div class="message-text">
+              你好！我是 Dexter，你的智能投资助手。我可以帮你：
+              <ul>
+                <li>📊 查询股票价格和财务数据</li>
+                <li>💰 进行 DCF 估值分析</li>
+                <li>📰 搜索市场新闻和内幕交易</li>
+                <li>💹 执行交易下单（纸交易模式）</li>
+                <li>🏦 管理账户和持仓</li>
+              </ul>
+              <br>
+              请告诉我你想了解什么？
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <div class="input-container">
+        <div class="input-wrapper">
+          <textarea 
+            id="messageInput" 
+            placeholder="输入你的问题，例如：分析AAPL的估值..."
+            rows="1"
+            onkeydown="handleKeyDown(event)"
+          ></textarea>
+          <button class="send-btn" onclick="sendMessage()" id="sendBtn">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"></line>
+              <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+            </svg>
+          </button>
+        </div>
+        <div class="quick-actions">
+          <button onclick="sendQuickMessage('AAPL现在多少钱？')">AAPL 价格</button>
+          <button onclick="sendQuickMessage('分析NVDA的DCF估值')">DCF 分析</button>
+          <button onclick="sendQuickMessage('查看我的账户和持仓')">账户查询</button>
+          <button onclick="sendQuickMessage('买入100股TSLA')">模拟交易</button>
+        </div>
+      </div>
+    </main>
+  </div>
+  
+  <script src="app.js"></script>
+</body>
+</html>
